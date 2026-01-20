@@ -7,10 +7,7 @@ on:
       - main                              # Solo se ejecuta si el push es en la rama main.
 
 
-env: 
-      DB_ENDPOINT: ${{ secrets.DB_ENDPOINT }} 
-      DB_USERNAME: ${{ secrets.DB_USERNAME }} 
-      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+
       
 jobs:
   build-and-deploy:                       # Define el trabajo llamado build-and-deploy.
@@ -32,9 +29,15 @@ jobs:
           distribution: temurin         
 
 
-      # 3️⃣ Construir la aplicación usando Maven.
-      - name: Build with Maven          
-        run: mvn clean package          
+     # 3️⃣ Construir la aplicación y ejecutar pruebas usando Maven.
+      - name: Build and test with Maven
+        env: 
+          DB_ENDPOINT: ${{ secrets.DB_ENDPOINT }} 
+          DB_USERNAME: ${{ secrets.DB_USERNAME }} 
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          mvn clean package
+          mvn test     
 
 
       # 4️⃣ Copiar el archivo .war a la instancia EC2.
