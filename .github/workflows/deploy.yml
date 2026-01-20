@@ -3,48 +3,43 @@ name: Deploy Spring Boot to EC2 (Ubuntu)
 on:
   push:
     branches:
-      - main # Se ejecuta al subir cambios a la rama main
+      - main
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     
-    # Variables de entorno para que Spring Boot conecte a la DB durante los tests
+    # Definimos las variables de entorno para que los tests de Maven funcionen
     env:
       DB_ENDPOINT: ${{ secrets.DB_ENDPOINT }}
       DB_USERNAME: ${{ secrets.DB_USERNAME }}
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
 
     steps:
-      # 1. Descargar código
       - name: Checkout source code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v2
 
-      # 2. Instalar Java 21
       - name: Set up JDK 21
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v2
         with:
-          java-version: '21'
-          distribution: 'temurin'
-          cache: 'maven'
+          java-version: 21
+          distribution: temurin
 
-      # 3. Compilar y Testear (CI)
       - name: Build and test with Maven
-        run: mvn clean package
+        run: |
+          mvn clean package
+          mvn test
 
-      # 4. Copiar el archivo .war a EC2
-      # NOTA: Asegúrate de que tu archivo se genera en target/ y termina en .war
       - name: Copy .war to EC2
         uses: appleboy/scp-action@v0.1.5
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_PRIVATE_KEY }}
-          source: "target/*.war"
-          target: "/home/ubuntu/"
+          source: target/demo-0.0.1-SNAPSHOT.war
+          target: /home/ubuntu/
           strip_components: 1
 
-      # 5. Configurar el servidor y desplegar
       - name: Configure environment variables and deploy
         uses: appleboy/ssh-action@master
         with:
@@ -52,18 +47,14 @@ jobs:
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_PRIVATE_KEY }}
           script: |
-            # Guardar variables de la DB en el sistema para que Tomcat las vea
-            echo "export DB_ENDPOINT='${{ secrets.DB_ENDPOINT }}'" | sudo tee -a /etc/environment
-            echo "export DB_USERNAME='${{ secrets.DB_USERNAME }}'" | sudo tee -a /etc/environment
-            echo "export DB_PASSWORD='${{ secrets.DB_PASSWORD }}'" | sudo tee -a /etc/environment
-            source /etc/environment
-
-            # Mover el archivo war a Tomcat (renombrándolo a demo.war para la URL)
-            sudo mv /home/ubuntu/*.war /var/lib/tomcat10/webapps/demo.war
+            sudo mkdir -p /etc/systemd/system/tomcat10.service.d/
+            echo "[Service]" | sudo tee /etc/systemd/system/tomcat10.service.d/override.conf
+            echo "Environment=\"DB_ENDPOINT=${{ secrets.DB_ENDPOINT }}\"" | sudo tee -a /etc/systemd/system/tomcat10.service.d/override.conf
+            echo "Environment=\"DB_USERNAME=${{ secrets.DB_USERNAME }}\"" | sudo tee -a /etc/systemd/system/tomcat10.service.d/override.conf
+            echo "Environment=\"DB_PASSWORD=${{ secrets.DB_PASSWORD }}\"" | sudo tee -a /etc/systemd/system/tomcat10.service.d/override.conf
             
-            # Ajustar dueños y permisos
+            sudo systemctl daemon-reload
+            sudo mv /home/ubuntu/demo-0.0.1-SNAPSHOT.war /var/lib/tomcat10/webapps/demo.war
             sudo chown tomcat:tomcat /var/lib/tomcat10/webapps/demo.war
             sudo chmod 755 /var/lib/tomcat10/webapps/demo.war
-
-            # Reiniciar para aplicar cambios
             sudo systemctl restart tomcat10
