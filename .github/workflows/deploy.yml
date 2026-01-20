@@ -3,48 +3,48 @@ name: Deploy Spring Boot to EC2 (Ubuntu)
 on:
   push:
     branches:
-      - [cite_start]main # Se ejecuta cuando haces push a la rama main [cite: 35, 36, 116]
+      - main # Se ejecuta al subir cambios a la rama main
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     
-    # Definimos variables de entorno globales para que Maven pueda pasar los tests [cite: 27, 43, 114]
+    # Variables de entorno para que Spring Boot conecte a la DB durante los tests
     env:
       DB_ENDPOINT: ${{ secrets.DB_ENDPOINT }}
       DB_USERNAME: ${{ secrets.DB_USERNAME }}
       DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
 
     steps:
-      # 1. Descargar el código fuente [cite: 49, 50, 120]
+      # 1. Descargar código
       - name: Checkout source code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
-      # 2. Configurar el entorno de Java [cite: 54, 55, 123]
+      # 2. Instalar Java 21
       - name: Set up JDK 21
-        uses: actions/setup-java@v2
+        uses: actions/setup-java@v3
         with:
-          java-version: 21
-          distribution: temurin
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
 
-      # 3. Construir y ejecutar pruebas automáticas (CI) [cite: 257, 260, 261]
+      # 3. Compilar y Testear (CI)
       - name: Build and test with Maven
-        run: |
-          mvn clean package
-          mvn test
+        run: mvn clean package
 
-      # 4. Copiar el archivo .war al servidor EC2 [cite: 68, 69, 139]
+      # 4. Copiar el archivo .war a EC2
+      # NOTA: Asegúrate de que tu archivo se genera en target/ y termina en .war
       - name: Copy .war to EC2
         uses: appleboy/scp-action@v0.1.5
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_PRIVATE_KEY }}
-          source: target/demo-0.0.1-SNAPSHOT.war
-          target: /home/ubuntu/
+          source: "target/*.war"
+          target: "/home/ubuntu/"
           strip_components: 1
 
-      # 5. Configurar persistencia de variables y desplegar en Tomcat [cite: 104, 147, 148]
+      # 5. Configurar el servidor y desplegar
       - name: Configure environment variables and deploy
         uses: appleboy/ssh-action@master
         with:
@@ -52,16 +52,18 @@ jobs:
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_PRIVATE_KEY }}
           script: |
-            # Guardar variables en el sistema para que Tomcat las lea al reiniciar [cite: 155, 156, 157]
-            echo "export DB_ENDPOINT=${{ secrets.DB_ENDPOINT }}" | sudo tee -a /etc/environment
-            echo "export DB_USERNAME=${{ secrets.DB_USERNAME }}" | sudo tee -a /etc/environment
-            echo "export DB_PASSWORD=${{ secrets.DB_PASSWORD }}" | sudo tee -a /etc/environment
+            # Guardar variables de la DB en el sistema para que Tomcat las vea
+            echo "export DB_ENDPOINT='${{ secrets.DB_ENDPOINT }}'" | sudo tee -a /etc/environment
+            echo "export DB_USERNAME='${{ secrets.DB_USERNAME }}'" | sudo tee -a /etc/environment
+            echo "export DB_PASSWORD='${{ secrets.DB_PASSWORD }}'" | sudo tee -a /etc/environment
             source /etc/environment
 
-            # Mover el archivo a Tomcat y ajustar permisos [cite: 160, 161, 162]
-            sudo mv /home/ubuntu/demo-0.0.1-SNAPSHOT.war /var/lib/tomcat10/webapps/demo.war
+            # Mover el archivo war a Tomcat (renombrándolo a demo.war para la URL)
+            sudo mv /home/ubuntu/*.war /var/lib/tomcat10/webapps/demo.war
+            
+            # Ajustar dueños y permisos
             sudo chown tomcat:tomcat /var/lib/tomcat10/webapps/demo.war
             sudo chmod 755 /var/lib/tomcat10/webapps/demo.war
 
-            # Reiniciar Tomcat para aplicar cambios [cite: 89, 164]
+            # Reiniciar para aplicar cambios
             sudo systemctl restart tomcat10
